@@ -1,9 +1,11 @@
 package main
 
 import (
-	"log"
+	"fmt"
 	"net"
 	"time"
+
+	l "github.com/parallelcointeam/sub/clog"
 )
 
 type nodeCfg struct {
@@ -36,7 +38,10 @@ var (
 )
 
 func main() {
+	l.Init()
+	*ld <- "starting up"
 	n := newNode(_n)
+
 	n.setupListener()
 	time.Sleep(time.Second * 1)
 	w := newNode(_w)
@@ -69,9 +74,10 @@ func (n *node) readFromSocket() {
 		check(err)
 		b = b[:count]
 		if count > 0 {
-			log.Print("'", string(b), "' <- ", addr)
+			*li <- fmt.Sprint("'", string(b), "' <- ", addr)
 			select {
 			case <-n.kill:
+				*li <- "closing socket"
 				break
 			default:
 			}
@@ -84,13 +90,13 @@ func (n *node) send(b []byte) {
 	check(err)
 	conn, err := net.DialUDP(uNet, nil, addr)
 	check(err)
-	log.Print("'", string(b), "' -> ", addr)
 	_, err = conn.Write(b)
 	check(err)
+	*li <- "'" + string(b) + "' -> " + n.cfg.Worker
 }
 
 func check(err error) {
 	if err != nil {
-		log.Print("ERR ", err)
+		*le <- err.Error()
 	}
 }

@@ -12,7 +12,7 @@ import (
 // Check checks if an error exists, if so, prints a log to the specified log level with a string and returns if err was nil
 func Check(err error, tag int, where string) (wasError bool) {
 	if err != nil {
-		L[tag].Chan <- L[tag].Name + " " + err.Error()
+		L[tag].Chan <- L[tag].Name() + " " + err.Error()
 		if tag == Ftl.Num {
 			panic("died")
 		}
@@ -23,66 +23,75 @@ func Check(err error, tag int, where string) (wasError bool) {
 // Lvl is a log level data structure
 type Lvl struct {
 	Num  int
-	Name string
+	Name func(c ...int) string
 	Chan chan string
 }
 
 var (
+	ftlFn = func(c ...int) string {
+		out := "FTL"
+		if len(c) > 0 {
+			return aurora.BgRed(out).String()
+		}
+		return out
+	}
+	errFn = func(c ...int) string {
+		out := "ERR"
+		if len(c) > 0 {
+			return aurora.Red(out).String()
+		}
+		return out
+	}
+	wrnFn = func(c ...int) string {
+		out := "ERR"
+		if len(c) > 0 {
+			return aurora.Brown(out).String()
+		}
+		return out
+	}
+	infFn = func(c ...int) string {
+		out := "INF"
+		if len(c) > 0 {
+			return aurora.Green(out).String()
+		}
+		return out
+	}
+	dbgFn = func(c ...int) string {
+		out := "DBG"
+		if len(c) > 0 {
+			return aurora.Blue(out).String()
+		}
+		return out
+	}
+	trcFn = func(c ...int) string {
+		out := "TRC"
+		if len(c) > 0 {
+			return aurora.BgBlue(out).String()
+		}
+		return out
+	}
 	// Ftl is for critical/fatal errors
-	Ftl = Lvl{0, aurora.BgRed("FTL").String(), nil}
+	Ftl = &Lvl{0, ftlFn, nil}
 	// Err is an error that does block continuation
-	Err = Lvl{1, aurora.Red("ERR").String(), nil}
+	Err = &Lvl{1, errFn, nil}
 	// Wrn is is a warning of a correctable condition
-	Wrn = Lvl{2, aurora.Brown("WRN").String(), nil}
+	Wrn = &Lvl{2, wrnFn, nil}
 	// Inf is is general information
-	Inf = Lvl{3, aurora.Green("INF").String(), nil}
+	Inf = &Lvl{3, infFn, nil}
 	// Dbg is debug level information
-	Dbg = Lvl{4, aurora.Blue("DBG").String(), nil}
+	Dbg = &Lvl{4, dbgFn, nil}
 	// Trc is detailed outputs of contents of variables
-	Trc = Lvl{5, aurora.BgBlue("TRC").String(), nil}
+	Trc = &Lvl{5, trcFn, nil}
 )
 
 // L is an array of log levels that can be selected given the level number
-var L = []Lvl{
+var L = []*Lvl{
 	Ftl,
 	Err,
 	Wrn,
 	Inf,
 	Dbg,
 	Trc,
-}
-
-// Logger is a short access method
-type Logger struct {
-	Ftl   chan string
-	Err   chan string
-	Wrn   chan string
-	Inf   chan string
-	Dbg   chan string
-	Trc   chan string
-	Start func(...func(name, txt string))
-	Stop  func()
-}
-
-// Get returns a structure with the struct fields for each loglevel
-func Get(fn ...func(...func(name, txt string))) (rl Logger, rls []Lvl) {
-	rl.Start = Init
-	if fn != nil {
-		rl.Start = fn[0]
-	}
-	return Logger{
-			Ftl.Chan,
-			Err.Chan,
-			Wrn.Chan,
-			Inf.Chan,
-			Dbg.Chan,
-			Trc.Chan,
-			rl.Start,
-			func() {
-				close(Quit)
-			},
-		},
-		L
 }
 
 // LogLevel is a dynamically settable log level filter that excludes higher values from output
@@ -94,9 +103,27 @@ var Quit = make(chan struct{})
 // LogIt is the function that performs the output, can be loaded by the caller
 var LogIt = Print
 
+var color = true
+
+// Color sets whether tags are coloured or not, 0 color
+func Color(on bool) {
+	color = on
+}
+
+// GetColor returns if color is turned on
+func GetColor() bool {
+	return color
+}
+
 // Init manually starts a clog
-func Init(fn ...func(name, txt string)) {
+func Init(fn ...func(name, txt string)) bool {
 	var ready []chan bool
+	Ftl.Chan = make(chan string)
+	Err.Chan = make(chan string)
+	Wrn.Chan = make(chan string)
+	Inf.Chan = make(chan string)
+	Dbg.Chan = make(chan string)
+	Trc.Chan = make(chan string)
 	// override the output function if one is given
 	if len(fn) > 0 {
 		LogIt = fn[0]
@@ -110,7 +137,8 @@ func Init(fn ...func(name, txt string)) {
 	for i := range ready {
 		<-ready[i]
 	}
-	Print("logger started", "")
+	Dbg.Chan <- "logger started"
+	return true
 }
 
 // Print out a formatted log message
@@ -133,7 +161,11 @@ func startChan(ch int, ready chan bool) {
 			continue
 		case txt := <-L[ch].Chan:
 			if ch <= LogLevel {
-				LogIt(L[ch].Name, txt)
+				if color {
+					LogIt(L[ch].Name(1), txt)
+				} else {
+					LogIt(L[ch].Name(), txt)
+				}
 			}
 			continue
 		default:
