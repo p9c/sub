@@ -3,8 +3,10 @@ package sub
 // Reed Solomon 9/3 forward error correction, intended to be sent as 9 pieces where 3 uncorrupted parts allows assembly of the message
 import (
 	"encoding/binary"
-	"github.com/vivint/infectious"
 	"hash/crc32"
+	"log"
+
+	"github.com/vivint/infectious"
 )
 
 var (
@@ -59,25 +61,22 @@ func rsEncode(data []byte) (chunks [][]byte) {
 	return
 }
 
-func rsDecode(chunks [][]byte) (data []byte) {
+func rsDecode(chunks [][]byte) (data []byte, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Print("Recovered in f", r)
+		}
+	}()
 	var shares []infectious.Share
 	for i := range chunks {
-		// First get the crc32 checksum suffix and convert to uint32
 		bodyLen := len(chunks[i])
 		body := chunks[i][:bodyLen-4]
-		check := chunks[i][bodyLen-4:]
-		checkSum := binary.LittleEndian.Uint32(check)
-		checksum := crc32.Checksum(body, crc32.MakeTable(crc32.Castagnoli))
-		if checkSum == checksum {
-			// The chunk appears to be complete, so assemble the infectious.Share struct
-			share := infectious.Share{
-				Number: int(body[0]),
-				Data:   body[1:],
-			}
-			shares = append(shares, share)
+		share := infectious.Share{
+			Number: int(body[0]),
+			Data:   body[1:],
 		}
+		shares = append(shares, share)
 	}
-	data, err := rsFEC.Decode(nil, shares)
-	check(err, "sub.rsDecode", false)
+	data, err = rsFEC.Decode(nil, shares)
 	return
 }

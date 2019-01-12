@@ -2,6 +2,19 @@ package sub
 
 import (
 	"net"
+	"time"
+)
+
+var (
+	uNet = "udp4"
+	// Maximum of 9 packets per message, so 16kb round is enough
+	defaultBufferSize = 16384
+	// FEC expands message by 150%, we don't split message chunks over more than one packet
+	maxMessageSize = 3072
+	// default channel buffer sizes for Base
+	baseChanBufs = 128
+	// latency maximum
+	latencyMax = time.Millisecond * 250
 )
 
 // BaseInterface is the core functions required for a Base
@@ -11,6 +24,7 @@ type BaseInterface interface {
 
 // BaseCfg is the configuration for a Base
 type BaseCfg struct {
+	Handler    func(message Message)
 	Listener   string
 	Password   []byte
 	BufferSize int
@@ -18,11 +32,15 @@ type BaseCfg struct {
 
 // Base is the common structure between a worker and a node
 type Base struct {
-	cfg      BaseCfg
-	listener *net.UDPConn
-	packets  chan *Packet
-	kill     chan bool
-	Messages chan *Message
+	cfg       BaseCfg
+	listener  *net.UDPConn
+	packets   chan Packet
+	incoming  chan Bundle
+	returning chan Bundle
+	trash     chan Bundle
+	doneRet   chan bool
+	message   chan Message
+	quit      chan bool
 }
 
 // A Node is a server with some number of subscribers
@@ -38,25 +56,25 @@ type Worker struct {
 }
 
 // Packet is the structure of individual encoded packets of the message. These are made from a 9/3 Reed Solomon code and 9 are sent in distinct packets and only 3 are required to guarantee retransmit-free delivery.
-// If the CRC is incorrect, the message reconstructor will omit this block from the reconstruction process.
 type Packet struct {
-	bytes  []byte       // raw FEC encoded bytes of packet
-	check  uint32       // CRC32 checksum of bytes to quickly identify corrupt packets
 	sender *net.UDPAddr // address packet was received from
+	bytes  []byte       // raw FEC encoded bytes of packet
 }
 
 // A Bundle is a collection of the received packets received from the same sender with up to 9 pieces.
 type Bundle struct {
-	packets []Packet
+	uuid     int32
+	sender   string
+	received time.Time
+	packets  [][]byte
 }
 
 // Message is the data reconstructed from a complete Bundle, containing data in messagepack format
 type Message struct {
+	uuid      int32
 	sender    string
-	recipient string
-	timestamp uint64
-	numBytes  uint16
-	bytes     []byte // messagepack payload
+	timestamp time.Time
+	bytes     []byte
 }
 
 // Subscription is the message sent by a worker node to request updates from the node
@@ -70,9 +88,3 @@ type Confirmation struct {
 	subscriber string // confirming address of subscriber
 	pubKey     []byte // public key of server for message verification
 }
-
-const (
-	uNet              = "udp4"
-	defaultBufferSize = 16384
-	maxMessageSize    = 3072
-)
