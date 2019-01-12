@@ -57,8 +57,8 @@ type Worker struct {
 
 // Packet is the structure of individual encoded packets of the message. These are made from a 9/3 Reed Solomon code and 9 are sent in distinct packets and only 3 are required to guarantee retransmit-free delivery.
 type Packet struct {
-	sender *net.UDPAddr // address packet was received from
-	bytes  []byte       // raw FEC encoded bytes of packet
+	sender string // address packet was received from
+	bytes  []byte // raw FEC encoded bytes of packet
 }
 
 // A Bundle is a collection of the received packets received from the same sender with up to 9 pieces.

@@ -12,6 +12,7 @@ import (
 // Check checks if an error exists, if so, prints a log to the specified log level with a string and returns if err was nil
 func Check(err error, tag int, where string) (wasError bool) {
 	if err != nil {
+		wasError = true
 		L[tag].Chan <- L[tag].Name() + " " + err.Error()
 		if tag == Ftl.Num {
 			panic("died")
@@ -26,6 +27,21 @@ type Lvl struct {
 	Name func(c ...int) string
 	Chan chan string
 }
+
+const (
+	// Nftl is the number for fatal errors
+	Nftl = iota
+	// Nerr is the number for errors
+	Nerr
+	// Nwrn is the number for warnings
+	Nwrn
+	// Ninf is the number for information
+	Ninf
+	// Ndbg is the number for debugging
+	Ndbg
+	// Ntrc is the number for trace
+	Ntrc
+)
 
 var (
 	ftlFn = func(c ...int) string {
@@ -82,28 +98,28 @@ var (
 	Dbg = &Lvl{4, dbgFn, nil}
 	// Trc is detailed outputs of contents of variables
 	Trc = &Lvl{5, trcFn, nil}
+
+	// L is an array of log levels that can be selected given the level number
+	L = []*Lvl{
+		Ftl,
+		Err,
+		Wrn,
+		Inf,
+		Dbg,
+		Trc,
+	}
+
+	// LogLevel is a dynamically settable log level filter that excludes higher values from output
+	LogLevel = Trc.Num
+
+	// Quit signals the logger to stop
+	Quit = make(chan struct{})
+
+	// LogIt is the function that performs the output, can be loaded by the caller
+	LogIt = Print
+
+	color = true
 )
-
-// L is an array of log levels that can be selected given the level number
-var L = []*Lvl{
-	Ftl,
-	Err,
-	Wrn,
-	Inf,
-	Dbg,
-	Trc,
-}
-
-// LogLevel is a dynamically settable log level filter that excludes higher values from output
-var LogLevel = Trc.Num
-
-// Quit signals the logger to stop
-var Quit = make(chan struct{})
-
-// LogIt is the function that performs the output, can be loaded by the caller
-var LogIt = Print
-
-var color = true
 
 // Color sets whether tags are coloured or not, 0 color
 func Color(on bool) {
@@ -165,6 +181,9 @@ func startChan(ch int, ready chan bool) {
 					LogIt(L[ch].Name(1), txt)
 				} else {
 					LogIt(L[ch].Name(), txt)
+				}
+				if ch == Nftl {
+					panic(txt)
 				}
 			}
 			continue

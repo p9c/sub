@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"testing"
+
+	"github.com/parallelcointeam/sub/clog"
 )
 
 var (
@@ -37,15 +39,10 @@ func TestFECCodec(t *testing.T) {
 	chunks[4][3] = ^chunks[4][3]
 	// Here we only need 3 packets
 	data, err := rsDecode(chunks[4:7])
-	if check(err, "TestFECCodec", false) {
-		t.Fatal(err)
-	}
+	clog.Check(err, clog.Nftl, "TestFECCodec")
 	// Requires one more across the punctured chunk to recover. This would not normally happen as the checksums would usually filter out incorrect chunks.
 	data, err = rsDecode(chunks[3:6])
-	if check(err, "TestFECCodec", false) {
-		t.Fatal(err)
-	}
-
+	clog.Check(err, clog.Nftl, "TestFECCodec")
 	dataLen := binary.LittleEndian.Uint16(data)
 	result := data[2 : dataLen+2]
 	dataString := hex.EncodeToString(data[2 : dataLen+2])

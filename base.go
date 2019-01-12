@@ -5,19 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"hash/crc32"
-	"log"
 	"math/rand"
 	"net"
 	"time"
 
-	l "github.com/parallelcointeam/sub/clog"
+	log "github.com/parallelcointeam/sub/clog"
 )
 
 // Implementations of common parts for node and worker
 
 // NewBase creates a new base listener
 func NewBase(cfg BaseCfg) (b *Base) {
-	l.Trc.ch <- "creating new Base"
+	*lt <- "creating new Base"
 	b = &Base{
 		cfg:       cfg,
 		packets:   make(chan Packet, baseChanBufs),
@@ -33,9 +32,9 @@ func NewBase(cfg BaseCfg) (b *Base) {
 func (b *Base) Start() (err error) {
 	var addr *net.UDPAddr
 	addr, err = net.ResolveUDPAddr(uNet, b.cfg.Listener)
-	l.Check(err, l.Crt, "sub.Base.Start ResolveUDPAddr", true)
+	log.Check(err, _fatal, "sub.Base.Start ResolveUDPAddr")
 	b.listener, err = net.ListenUDP(uNet, addr)
-	check(err, "sub.Base.Start ListenUDP", true)
+	log.Check(err, _fatal, "sub.Base.Start ListenUDP")
 	// Start up reader to push packets into packet channel
 	go b.readFromSocket()
 	go b.processPackets()
@@ -48,8 +47,10 @@ func (b *Base) Start() (err error) {
 			default:
 			}
 			select {
-			case <-b.message:
-				go b.cfg.Handler(<-b.message)
+			case msg := <-b.message:
+				go b.cfg.Handler(msg)
+				continue
+			default:
 			}
 		}
 	}()
@@ -58,22 +59,28 @@ func (b *Base) Start() (err error) {
 
 // Stop shuts down the listener
 func (b *Base) Stop() {
+	*lt <- "shutting down listener"
 	b.quit <- true
 	b.listener.Close()
 }
 
 func (b *Base) readFromSocket() {
-	select {
-	case <-b.quit:
-		break
-	}
-	l[trc].ch <- "reading from sockets"
+	*ld <- "reading from socket"
 	for {
+		select {
+		case <-b.quit:
+			*lt <- "quitting readFromSocket"
+			break
+		default:
+		}
 		var data = make([]byte, b.cfg.BufferSize)
-		count, addr, err := b.listener.ReadFromUDP(data[0:])
-		check(err, "sub.Base.readFromSocket.ReadFromUDP", false)
-		data = data[:count]
-		if count > 6 && err != nil {
+		count, _, err := b.listener.ReadFromUDP(data[0:])
+		if log.Check(err, _info, "sub.Base.readFromSocket.ReadFromUDP") {
+			continue
+		}
+		if count > 12 {
+			data = data[:count]
+			sender := string(data[:6])
 			body := data[:count-4]
 			check := data[count-4:]
 			checkSum := binary.LittleEndian.Uint32(check)
@@ -81,9 +88,8 @@ func (b *Base) readFromSocket() {
 			if cs != checkSum {
 				continue
 			}
-			l
 			b.packets <- Packet{
-				sender: addr,
+				sender: sender,
 				bytes:  data,
 			}
 		}
@@ -98,15 +104,13 @@ func (b *Base) processPackets() {
 		default:
 		}
 		select {
-		case <-b.packets:
-			rand.Seed(time.Now().Unix())
-			uuid := rand.Int31()
-			p := <-b.packets
-			sender := p.sender.String()
+		case p := <-b.packets:
+			sender := string(p.bytes[:6])
 			go func() {
 				for {
 					select {
 					case <-b.doneRet:
+						*lt <- "returning items to channel"
 						for i := range b.returning {
 							b.incoming <- i
 						}
@@ -114,30 +118,29 @@ func (b *Base) processPackets() {
 					case <-b.returning:
 						continue
 					case <-b.trash:
-						_ = <-b.trash
 						continue
 					}
 				}
 			}()
 			for bi := range b.incoming {
 				if bi.sender == sender {
+					*lt <- "appending bytes to bundle"
 					bi.packets = append(bi.packets, p.bytes)
 					b.returning <- bi
 					break
 				}
-				// If we have 3 or more it should be possible to now assemble the message
 				if len(bi.packets) > 2 {
+					*lt <- "if we have 3 or more it should be possible to now assemble the message"
 					b.incoming <- bi
 					continue
 				}
-				// if
-				if bi.received.Sub(time.Now()) < latencyMax {
-					b.incoming <- bi
-					continue
-				} else {
-					// delete all packets that fall outside the latency maximum
+				if bi.received.Sub(time.Now()) > latencyMax {
+					*lt <- "delete all packets that fall outside the latency maximum"
 					b.trash <- bi
 					break
+				} else {
+					*lt <- "accept subsequent packets before latencyMax"
+					b.incoming <- bi
 				}
 				b.doneRet <- true
 			}
@@ -155,8 +158,7 @@ func (b *Base) processBundles() {
 		}
 		var uuid int32
 		select {
-		case <-b.incoming:
-			bundle := <-b.incoming
+		case bundle := <-b.incoming:
 			data, err := rsDecode(bundle.packets)
 			if err == nil &&
 				bundle.uuid != uuid {
@@ -181,13 +183,12 @@ func (b *Base) Send(data []byte, addr *net.UDPAddr) (err error) {
 		err = errors.New("maximum message size is " + fmt.Sprint(maxMessageSize) + " bytes")
 	}
 	addr, err = net.ResolveUDPAddr(uNet, addr.String())
-	check(err, "sub.Base.Send.ResolveUDPAddr", false)
+	log.Check(err, log.Ndbg, "sub.Base.Send.ResolveUDPAddr")
 	conn, err := net.DialUDP(uNet, nil, addr)
-	if check(err, "sub.Base.Send.DialUDP", false) {
+	if log.Check(err, log.Ndbg, "sub.Base.Send.DialUDP") {
 		return
 	}
-	log.Print("'", string(data), "' -> ", addr)
 	_, err = conn.Write(data)
-	check(err, "sub.Base.Send.Write", false)
+	log.Check(err, log.Ndbg, "sub.Base.Send.Write")
 	return
 }

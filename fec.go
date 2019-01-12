@@ -6,6 +6,7 @@ import (
 	"hash/crc32"
 	"log"
 
+	"github.com/parallelcointeam/sub/clog"
 	"github.com/vivint/infectious"
 )
 
@@ -14,7 +15,7 @@ var (
 	rsRequired = 3
 	rsFEC      = func() *infectious.FEC {
 		fec, err := infectious.NewFEC(3, 9)
-		check(err, "creating 3,9 FEC codec", true)
+		clog.Check(err, clog.Nftl, "creating 3,9 FEC codec")
 		return fec
 	}()
 )
@@ -47,7 +48,7 @@ func rsEncode(data []byte) (chunks [][]byte) {
 		shares[s.Number] = s.DeepCopy()
 	}
 	err := rsFEC.Encode(data, output)
-	check(err, "sub.rsEncode", false)
+	clog.Check(err, clog.Nftl, "sub.rsEncode")
 	for i := range shares {
 		// Append the chunk number to the front of the chunk
 		chunk := append([]byte{byte(shares[i].Number)}, shares[i].Data...)
